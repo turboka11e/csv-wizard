@@ -10,6 +10,7 @@ native-dialog = "0.6.3"
 csv = "1.1"
 cursive-async-view = "^0"
 xlsxwriter = "0.3.5"
+threadpool = "1.8.1"
 
 [dependencies.cursive]
 version = "0.17"

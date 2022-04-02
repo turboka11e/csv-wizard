@@ -7,15 +7,24 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use csv::StringRecord;
 use cursive::{
     align::HAlign,
     theme::Effect,
-    traits::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, SelectView, TextView},
-    CbSink, Cursive,
+    traits::{Nameable, Resizable, Scrollable},
+    views::{Dialog, DummyView, LinearLayout, Panel, SelectView, TextArea, TextView},
+    Cursive,
 };
-use transform::{get_headers_from_file, iterate_over_csv_file};
+use transform::{get_headers_from_file, Transformer};
 use utils::{select_directory, select_file};
+
+#[derive(Clone, Debug)]
+pub struct Options {
+    selected_category: String,
+    input: PathBuf,
+    output: PathBuf,
+    filter: Option<(String, String)>,
+}
 
 fn main() {
     // Creates the cursive root - required for every application.
@@ -23,7 +32,6 @@ fn main() {
     siv.set_window_title("CSV Wizard");
     siv.add_global_callback('q', |s| s.quit());
 
-    // Creates a dialog with a single "Quit" button
     select_file_and_directory(&mut siv);
 
     // Starts the event loop.
@@ -69,7 +77,8 @@ fn select_file_and_directory(siv: &mut Cursive) {
     );
 }
 
-
+/// Select Category Display
+///
 fn select_category(s: &mut Cursive) {
     let input_path = s
         .call_on_name("input", |view: &mut TextView| view.get_content())
@@ -88,8 +97,8 @@ fn select_category(s: &mut Cursive) {
         // Use keyboard to jump to the pressed letters
         .autojump();
 
-    match get_headers_from_file(PathBuf::from(&input_path.source())) {
-        Ok(iter) => iter.into_iter().for_each(|s| select.add_item(s.clone(), s)),
+    let headers = match get_headers_from_file(&PathBuf::from(&input_path.source())) {
+        Ok(iter) => iter,
         Err(error) => {
             return s.add_layer(
                 Dialog::text(format!("Failed with {}", error.to_string()))
@@ -97,7 +106,12 @@ fn select_category(s: &mut Cursive) {
                     .button("Close", |s| s.quit()),
             )
         }
-    }
+    };
+
+    headers
+        .clone()
+        .iter()
+        .for_each(|s| select.add_item(s.to_string(), s.to_string()));
 
     s.pop_layer();
     s.add_layer(
@@ -106,52 +120,101 @@ fn select_category(s: &mut Cursive) {
                 .child(DummyView)
                 .child(TextView::new("Select a category:").style(Effect::Bold))
                 .child(DummyView)
-                .child(select.on_submit(move |s, selected_category: &String| {
-                    // Show a popup whenever the user presses <Enter>
-                    select_filter(
-                        s,
-                        PathBuf::from(input_path.source()),
-                        PathBuf::from(output_path.source()),
-                        selected_category.clone(),
-                    )
-                })),
+                .child(
+                    select
+                        .on_submit(move |s, selected_category: &str| {
+                            // Show a popup whenever the user presses <Enter>
+                            let options = Options {
+                                selected_category: selected_category.to_string(),
+                                input: PathBuf::from(input_path.source()),
+                                output: PathBuf::from(output_path.source()),
+                                filter: None,
+                            };
+
+                            select_filter(s, options, headers.clone());
+                        })
+                        .scrollable(),
+                ),
         )
         .title("Configuration"),
     );
 }
 
-fn select_filter(
-    s: &mut Cursive,
-    input_path: PathBuf,
-    output_path: PathBuf,
-    selected_category: String,
-) {
+fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
+    let (skip_options, skip_headers) = (options.clone(), headers.clone());
+    let mut select = SelectView::new()
+        // Center the text horizontally
+        .h_align(HAlign::Center)
+        // Use keyboard to jump to the pressed letters
+        .autojump();
+
+    headers
+        .clone()
+        .into_iter()
+        .for_each(|s| select.add_item(s.clone(), s.to_string()));
+
+    s.pop_layer();
+    s.add_layer(
+        Dialog::around(
+            LinearLayout::vertical()
+                .child(DummyView)
+                .child(TextView::new("Select a filter:").style(Effect::Bold))
+                .child(DummyView)
+                .child(
+                    LinearLayout::horizontal()
+                        .child(
+                            Panel::new(select.with_name("filterView").scrollable())
+                                .title("Field")
+                                .fixed_width(20),
+                        )
+                        .child(
+                            LinearLayout::vertical()
+                                .child(TextView::new("Equals to").center().min_width(20))
+                                .child(TextArea::new().with_name("filterEquals")),
+                        ),
+                ),
+        )
+        .button("Skip", move |s| {
+            execute(s, skip_options.clone(), skip_headers.clone())
+        })
+        .button("Next", move |s| {
+            let mut options = options.clone();
+
+            options.filter = Some((
+                s.call_on_name("filterView", |view: &mut SelectView| {
+                    view.selection().unwrap().to_string()
+                })
+                .unwrap(),
+                s.call_on_name("filterEquals", |view: &mut TextArea| {
+                    view.get_content().to_string()
+                })
+                .unwrap(),
+            ));
+            execute(s, options, headers.clone())
+            // execute(s, options)
+        })
+        .title("Configuration"),
+    );
+}
+
+fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
     s.pop_layer();
     s.add_layer(
         Dialog::new()
             .title("Execution")
             .content(TextView::new("").with_name("running").min_width(15)),
     );
-    let model = Arc::new(Mutex::new(s.cb_sink().clone()));
-    execute(
-        model,
-        input_path.clone(),
-        output_path.clone(),
-        selected_category.clone(),
-    )
-}
+    let transformer = Arc::new(Mutex::new(Transformer::new(
+        s.cb_sink().clone(),
+        options,
+        headers,
+    )));
 
-fn execute(
-    cb_sink: Arc<Mutex<CbSink>>,
-    input_path: PathBuf,
-    output_path: PathBuf,
-    selected_category: String,
-) {
     std::thread::spawn(move || {
-        let cb_sink = cb_sink.lock().unwrap();
-
-        match iterate_over_csv_file(&cb_sink, &input_path, &output_path, &selected_category) {
-            Ok((csv_lines, excel_files, categories_total)) => cb_sink
+        let mut transformer = transformer.lock().unwrap();
+        match transformer.execute() {
+            Ok((csv_lines, csv_wl, excel_files, categories_total)) => transformer
+                .sink
                 .send(Box::new(move |s: &mut Cursive| {
                     s.add_layer(
                         Dialog::around(
@@ -159,15 +222,19 @@ fn execute(
                                 .child(TextView::new("Finished."))
                                 .child(DummyView)
                                 .child(TextView::new(format!(
-                                    "Number of categories:          {}",
+                                    "Categories:          {}",
                                     categories_total
                                 )))
                                 .child(TextView::new(format!(
-                                    "Number of csv lines read:      {}",
+                                    "CSV lines read:      {}",
                                     csv_lines
                                 )))
                                 .child(TextView::new(format!(
-                                    "Number of Excel lines written: {}",
+                                    "CSV lines written:   {}",
+                                    csv_wl
+                                )))
+                                .child(TextView::new(format!(
+                                    "Excel lines written: {}",
                                     excel_files
                                 ))),
                         )
@@ -178,7 +245,8 @@ fn execute(
                 .unwrap(),
             Err(error) => {
                 let error = error.to_string();
-                cb_sink
+                transformer
+                    .sink
                     .send(Box::new(move |s: &mut Cursive| {
                         s.add_layer(
                             Dialog::text(format!("Failed with {}", error))

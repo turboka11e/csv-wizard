@@ -1,117 +1,125 @@
 use csv::{StringRecord, WriterBuilder};
-use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, sync::MutexGuard, vec};
+use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, vec};
 
-use cursive::{reexports::crossbeam_channel::Sender, views::TextView, Cursive};
+use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
 
 use crate::{
     errors::HeaderError,
     utils::{replace_all_invalid_characters, Header},
+    Options,
 };
 
-pub fn get_headers_from_file(input_path: PathBuf) -> Result<Vec<String>, Box<dyn Error>> {
-    if let Ok(mut rdr) = csv::ReaderBuilder::new()
-        .delimiter(b';')
-        .from_path(input_path)
-    {
-        if let Ok(headers) = rdr.headers() {
-            return Ok(headers.into_iter().map(|s| s.to_string()).collect());
-        }
-    }
-    Err(Box::new(HeaderError))
+pub struct Transformer {
+    pub sink: CbSink,
+    options: Options,
+    headers: StringRecord,
 }
 
-pub fn iterate_over_csv_file(
-    s: &MutexGuard<Sender<Box<dyn FnOnce(&mut Cursive) + Send>>>,
-    input_path: &PathBuf,
-    output_path: &PathBuf,
-    category: &String,
-) -> Result<(i32, i32, i32), Box<dyn Error>> {
-    let mut categories: HashMap<String, (csv::Writer<File>, Vec<StringRecord>, Workbook)> =
-        HashMap::new();
-    let mut rows = 0;
-    let mut excel_lines = 0;
-    let mut categories_total = 0;
-    if let Ok(mut rdr) = csv::ReaderBuilder::new()
-        .delimiter(b';')
-        .from_path(input_path)
-    {
-        let category_idx = rdr.get_field(&category)?;
-        let headers = rdr.headers().cloned()?;
-        for row in rdr.records() {
-            // The iterator yields Result<StringRecord, Error>, so we check the
-            // error here.;
-            rows += 1;
+impl Transformer {
+    pub fn new(sink: CbSink, options: Options, headers: StringRecord) -> Transformer {
+        Transformer {
+            sink,
+            options,
+            headers,
+        }
+    }
 
-            s.send(Box::new(move |s: &mut Cursive| {
+    fn write_to_running_view(&mut self, text: String) {
+        self.sink
+            .send(Box::new(move |s: &mut Cursive| {
                 s.call_on_name("running", |view: &mut TextView| {
-                    view.set_content("CSV lines read: ".to_string() + &rows.to_string())
+                    view.set_content(text);
                 });
             }))
             .unwrap();
-
-            let row = row?;
-            if let Some(cat_field) = row.get(category_idx) {
-                if !categories.contains_key(&cat_field.to_lowercase()) {
-                    categories_total += 1;
-                    let mut path_csv = output_path.clone();
-                    let mut path_xlsx = output_path.clone();
-                    let valid_cat_name = replace_all_invalid_characters(cat_field);
-
-                    path_csv.push(valid_cat_name.clone() + ".csv");
-                    path_xlsx.push(valid_cat_name + ".xlsx");
-
-                    let mut wtr = WriterBuilder::new()
-                        .delimiter(b';')
-                        .from_path(path_csv)?;
-                    wtr.write_record(&headers)?;
-
-                    categories.entry(cat_field.to_string().to_lowercase()).or_insert((
-                        wtr,
-                        vec![headers.clone()],
-                        Workbook::new(path_xlsx.to_str().unwrap()),
-                    ));
-                }
-
-                let (wtr, records, _) = categories.get_mut(&cat_field.to_lowercase()).unwrap();
-                records.push(row.clone());
-                wtr.write_record(&row)?;
-                wtr.flush()?;
-            } else {
-                return Err(Box::new(HeaderError));
-            }
-        }
-
-        for (_, (_, records, workbook)) in categories.into_iter() {
-            // let cat_name = transform_to_valid(&key);
-
-            match workbook.add_worksheet(None) {
-                Ok(mut worksheet) => {
-                    for (row, record) in records.into_iter().enumerate() {
-                        if row != 0 {
-                            excel_lines += 1;
-                        }
-                        s.send(Box::new(move |s: &mut Cursive| {
-                            s.call_on_name("running", |view: &mut TextView| {
-                                view.set_content(
-                                    "Excel lines added: ".to_string() + &excel_lines.to_string(),
-                                )
-                            });
-                        }))
-                        .unwrap();
-                        for (col, field) in record.iter().enumerate() {
-                            worksheet
-                                .write_string(row as u32, col as u16, field, None)
-                                .unwrap();
-                        }
-                    }
-
-                    workbook.close().unwrap();
-                }
-                Err(error) => return Err(Box::new(error)),
-            }
-        }
     }
 
-    Ok((rows, excel_lines, categories_total))
+    pub fn execute(&mut self) -> Result<(i32, i32, i32, i32), Box<dyn Error>> {
+        let (mut csv_rl, mut csv_wl, mut excel_wl, mut cat_total) = (0, 0, 0, 0);
+        let mut categories: HashMap<String, Vec<StringRecord>> = HashMap::new();
+
+        if let Ok(mut rdr) = csv::ReaderBuilder::new()
+            .delimiter(b';')
+            .from_path(&self.options.input)
+        {
+            let category_idx = rdr.get_field(&self.options.selected_category)?;
+
+            for record in rdr.records() {
+                csv_rl += 1;
+                let record = record?;
+                self.write_to_running_view(format!("CSV lines read {}", csv_rl));
+
+                if let Some(cat_field) = record.get(category_idx) {
+                    if !categories.contains_key(&cat_field.to_lowercase()) {
+                        cat_total += 1;
+                        categories
+                            .entry(cat_field.to_string().to_lowercase())
+                            .or_insert(vec![self.headers.clone()]);
+                    }
+                    categories
+                        .get_mut(&cat_field.to_string().to_lowercase())
+                        .unwrap()
+                        .push(record);
+                }
+            }
+
+            // CSV
+
+            for (category, records) in categories.into_iter() {
+                let (path_csv, path_xlsx) = self.get_csv_xlsx_path(category);
+
+                //// WRITE CSV
+
+                let mut wtr = WriterBuilder::new()
+                    .delimiter(b';')
+                    .from_path(path_csv)?;
+                
+                for record in records.iter() {
+                    csv_wl += 1;
+                    self.write_to_running_view(format!("CSV lines added: {}", csv_wl));
+                    wtr.write_record(record)?;
+                }
+                csv_wl -= 1; // account for header
+                //// WRITE EXCEL
+
+                let workbook = Workbook::new(path_xlsx.to_str().unwrap());
+
+                match workbook.add_worksheet(None) {
+                    Ok(mut worksheet) => {
+                        for (row, record) in records.into_iter().enumerate() {
+                            excel_wl += 1;
+                            self.write_to_running_view(format!("Excel lines added: {}", excel_wl));
+                            for (col, field) in record.iter().enumerate() {
+                                worksheet
+                                    .write_string(row as u32, col as u16, field, None)
+                                    .unwrap();
+                            }
+                        }
+                        excel_wl -= 1; // account for header
+                        workbook.close().unwrap();
+                    }
+                    Err(error) => return Err(Box::new(error)),
+                }
+            }
+        }
+
+        Ok((csv_rl as i32, csv_wl, excel_wl, cat_total as i32))
+    }
+
+    fn get_csv_xlsx_path(&mut self, category: String) -> (PathBuf, PathBuf) {
+        let (mut path_csv, mut path_xlsx) =
+            (self.options.output.clone(), self.options.output.clone());
+        let valid_cat_name = replace_all_invalid_characters(&category);
+        path_csv.push(valid_cat_name.clone() + ".csv");
+        path_xlsx.push(valid_cat_name + ".xlsx");
+        (path_csv, path_xlsx)
+    }
+}
+
+pub fn get_headers_from_file(file: &PathBuf) -> Result<StringRecord, Box<dyn Error>> {
+    if let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(b';').from_path(file) {
+        return Ok(rdr.headers().cloned()?);
+    }
+    Err(Box::new(HeaderError))
 }
