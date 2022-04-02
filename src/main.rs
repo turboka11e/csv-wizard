@@ -34,17 +34,21 @@ fn select_file_and_directory(siv: &mut Cursive) {
     siv.add_layer(
         Dialog::around(
             LinearLayout::vertical()
-                .child(TextView::new("Split a file in mulitple files by category."))
+                .child(DummyView)
+                .child(TextView::new(
+                    "Split CSV-file by category and filter (optional).",
+                ))
+                .child(TextView::new("Output files are in format CSV and Excel."))
                 .child(DummyView)
                 .child(
                     LinearLayout::horizontal()
-                        .child(TextView::new(" Input:").min_width(18))
-                        .child(TextView::new("").with_name("input")),
+                        .child(TextView::new(" Input:  ").style(Effect::Bold))
+                        .child(TextView::new("").with_name("input").min_width(30)),
                 )
                 .child(
                     LinearLayout::horizontal()
-                        .child(TextView::new("Output:").min_width(18))
-                        .child(TextView::new("").with_name("output")),
+                        .child(TextView::new("Output:  ").style(Effect::Bold))
+                        .child(TextView::new("").with_name("output").min_width(30)),
                 ),
         )
         .title("CSV Wizard")
