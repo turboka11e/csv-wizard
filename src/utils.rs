@@ -1,5 +1,5 @@
 use std::{path::PathBuf, fs::File, error::Error};
-use csv::Reader;
+use csv::{Reader, StringRecord};
 use native_dialog::FileDialog;
 
 use crate::errors::HeaderError;
@@ -55,4 +55,11 @@ pub fn replace_all_invalid_characters(field: &str) -> String {
         .iter()
         .for_each(|&c| field = field.replace(c, "_"));
     field
+}
+
+pub fn get_headers_from_file(file: &PathBuf) -> Result<StringRecord, Box<dyn Error>> {
+    if let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(b';').from_path(file) {
+        return Ok(rdr.headers().cloned()?);
+    }
+    Err(Box::new(HeaderError))
 }

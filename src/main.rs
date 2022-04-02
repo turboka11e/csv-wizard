@@ -15,16 +15,8 @@ use cursive::{
     views::{Dialog, DummyView, LinearLayout, Panel, SelectView, TextArea, TextView},
     Cursive,
 };
-use transform::{get_headers_from_file, Transformer};
-use utils::{select_directory, select_file};
-
-#[derive(Clone, Debug)]
-pub struct Options {
-    selected_category: String,
-    input: PathBuf,
-    output: PathBuf,
-    filter: Option<(String, String)>,
-}
+use transform::{Options, Transformer};
+use utils::{get_headers_from_file, select_directory, select_file};
 
 fn main() {
     // Creates the cursive root - required for every application.
@@ -124,12 +116,12 @@ fn select_category(s: &mut Cursive) {
                     select
                         .on_submit(move |s, selected_category: &str| {
                             // Show a popup whenever the user presses <Enter>
-                            let options = Options {
-                                selected_category: selected_category.to_string(),
-                                input: PathBuf::from(input_path.source()),
-                                output: PathBuf::from(output_path.source()),
-                                filter: None,
-                            };
+                            let options = Options::new(
+                                selected_category.to_string(),
+                                PathBuf::from(input_path.source()),
+                                PathBuf::from(output_path.source()),
+                                None,
+                            );
 
                             select_filter(s, options, headers.clone());
                         })
@@ -180,7 +172,7 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
         .button("Next", move |s| {
             let mut options = options.clone();
 
-            options.filter = Some((
+            options.set_filter(Some((
                 s.call_on_name("filterView", |view: &mut SelectView| {
                     view.selection().unwrap().to_string()
                 })
@@ -189,7 +181,7 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
                     view.get_content().to_string()
                 })
                 .unwrap(),
-            ));
+            )));
             execute(s, options, headers.clone())
             // execute(s, options)
         })
@@ -225,14 +217,8 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
                                     "Categories:          {}",
                                     categories_total
                                 )))
-                                .child(TextView::new(format!(
-                                    "CSV lines read:      {}",
-                                    csv_lines
-                                )))
-                                .child(TextView::new(format!(
-                                    "CSV lines written:   {}",
-                                    csv_wl
-                                )))
+                                .child(TextView::new(format!("CSV lines read:      {}", csv_lines)))
+                                .child(TextView::new(format!("CSV lines written:   {}", csv_wl)))
                                 .child(TextView::new(format!(
                                     "Excel lines written: {}",
                                     excel_files

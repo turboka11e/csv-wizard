@@ -5,15 +5,21 @@ use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
 
 use crate::{
-    errors::HeaderError,
     utils::{replace_all_invalid_characters, Header},
-    Options,
 };
 
 pub struct Transformer {
     pub sink: CbSink,
     options: Options,
     headers: StringRecord,
+}
+
+#[derive(Clone, Debug)]
+pub struct Options {
+    selected_category: String,
+    input: PathBuf,
+    output: PathBuf,
+    filter: Option<(String, String)>,
 }
 
 impl Transformer {
@@ -121,9 +127,23 @@ impl Transformer {
     }
 }
 
-pub fn get_headers_from_file(file: &PathBuf) -> Result<StringRecord, Box<dyn Error>> {
-    if let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(b';').from_path(file) {
-        return Ok(rdr.headers().cloned()?);
+impl Options {
+    pub fn new(
+        selected_category: String,
+        input: PathBuf,
+        output: PathBuf,
+        filter: Option<(String, String)>,
+    ) -> Options {
+        Options {
+            selected_category,
+            input,
+            output,
+            filter,
+        }
     }
-    Err(Box::new(HeaderError))
+
+    pub fn set_filter(&mut self, filter: Option<(String, String)>) -> Self {
+        self.filter = filter;
+        self.to_owned()
+    }
 }
