@@ -1,5 +1,5 @@
 use csv::{StringRecord, WriterBuilder};
-use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, vec};
+use std::{collections::HashMap, error::Error, path::PathBuf, vec};
 
 use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
@@ -35,9 +35,14 @@ impl Transformer {
             .unwrap();
     }
 
+    /// Execute will read a csv and then write split by category to potentially multiple csv and excel files.
+    ///
+    /// The value in the Hashmap is (Records, first field name for that category) -> Background: Windows doesnt differentiate between upper and lowercase.
+    /// Because the category name will be used for the file test.csv and Test.csv would overwrite each other and corrupt the result.
     pub fn execute(&mut self) -> Result<(i32, i32, i32, i32), Box<dyn Error>> {
         let (mut csv_rl, mut csv_wl, mut excel_wl, mut cat_total) = (0, 0, 0, 0);
-        let mut categories: HashMap<String, Vec<StringRecord>> = HashMap::new();
+
+        let mut categories: HashMap<String, (Vec<StringRecord>, String)> = HashMap::new();
 
         if let Ok(mut rdr) = csv::ReaderBuilder::new()
             .delimiter(b';')
@@ -55,33 +60,32 @@ impl Transformer {
                         cat_total += 1;
                         categories
                             .entry(cat_field.to_string().to_lowercase())
-                            .or_insert(vec![self.headers.clone()]);
+                            .or_insert((vec![self.headers.clone()], (&cat_field).to_string()));
                     }
                     categories
                         .get_mut(&cat_field.to_string().to_lowercase())
                         .unwrap()
+                        .0
                         .push(record);
                 }
             }
 
             // CSV
 
-            for (category, records) in categories.into_iter() {
+            for (_, (records, category)) in categories.into_iter() {
                 let (path_csv, path_xlsx) = self.get_csv_xlsx_path(category);
 
                 //// WRITE CSV
 
-                let mut wtr = WriterBuilder::new()
-                    .delimiter(b';')
-                    .from_path(path_csv)?;
-                
+                let mut wtr = WriterBuilder::new().delimiter(b';').from_path(path_csv)?;
+
                 for record in records.iter() {
                     csv_wl += 1;
                     self.write_to_running_view(format!("CSV lines added: {}", csv_wl));
                     wtr.write_record(record)?;
                 }
                 csv_wl -= 1; // account for header
-                //// WRITE EXCEL
+                             //// WRITE EXCEL
 
                 let workbook = Workbook::new(path_xlsx.to_str().unwrap());
 
