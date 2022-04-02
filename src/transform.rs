@@ -4,9 +4,7 @@ use std::{collections::HashMap, error::Error, path::PathBuf, vec};
 use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
 
-use crate::{
-    utils::{replace_all_invalid_characters, Header},
-};
+use crate::utils::{replace_all_invalid_characters, Header};
 
 pub struct Transformer {
     pub sink: CbSink,
@@ -56,17 +54,36 @@ impl Transformer {
         {
             let category_idx = rdr.get_field(&self.options.selected_category)?;
 
+            let mut filterOption = None;
+            if let Some((field, filter_name)) = self.options.filter.clone() {
+                filterOption = Some((rdr.get_field(&field)?, filter_name));
+            }
+
             for record in rdr.records() {
                 csv_rl += 1;
                 let record = record?;
                 self.write_to_running_view(format!("CSV lines read {}", csv_rl));
 
+                if let Some((field_idx, filter_name)) = &filterOption {
+                    let value = record.get(*field_idx).unwrap();
+                    if value != filter_name {
+                        continue;
+                    }
+                };
+
                 if let Some(cat_field) = record.get(category_idx) {
                     if !categories.contains_key(&cat_field.to_lowercase()) {
                         cat_total += 1;
+
+                        let file_name = if let Some((_, filter_name)) = &filterOption {
+                            (&cat_field).to_string() + filter_name
+                        } else {
+                            (&cat_field).to_string()
+                        };
+
                         categories
                             .entry(cat_field.to_string().to_lowercase())
-                            .or_insert((vec![self.headers.clone()], (&cat_field).to_string()));
+                            .or_insert((vec![self.headers.clone()], file_name));
                     }
                     categories
                         .get_mut(&cat_field.to_string().to_lowercase())
