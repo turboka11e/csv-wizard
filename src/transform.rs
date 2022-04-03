@@ -44,8 +44,8 @@ impl Transformer {
     ///
     /// The value in the Hashmap is (Records, first field name for that category) -> Background: Windows doesn't differentiate between upper and lowercase.
     /// Hence test.csv and Test.csv would overwrite each other and corrupt the result.
-    /// 
-    /// Returns Ok(categories_total, csv_lines, csv_wl, excel_files)
+    ///
+    /// Returns Ok(cat_total, csv_rl, csv_wl, excel_wl)
     pub fn execute(&mut self) -> Result<(i32, i32, i32, i32), Box<dyn Error>> {
         match csv::ReaderBuilder::new()
             .delimiter(b';')
@@ -65,7 +65,7 @@ impl Transformer {
                     self.write_xlsx(path_xlsx, &records, &mut excel_wl)?;
                 }
 
-                Ok((csv_rl as i32, csv_wl, excel_wl, cat_total as i32))
+                Ok((cat_total as i32, csv_rl as i32, csv_wl, excel_wl))
             }
             Err(error) => Err(Box::new(error)),
         }
