@@ -1,11 +1,13 @@
-use std::{path::PathBuf, fs::File, error::Error};
-use chrono::{NaiveDateTime, Datelike, Timelike};
+use chrono::{Datelike, NaiveDateTime, Timelike};
 use csv::{Reader, StringRecord};
 use native_dialog::FileDialog;
+use std::{error::Error, fs::File, path::PathBuf};
 
 use crate::errors::HeaderError;
 
-const INVALID_CHARS: [char; 14] = ['$', '%', '^', '*', '/', ' ', '.', ':', '<', '>', '"', '\\', '|', '?'];
+const INVALID_CHARS: [char; 14] = [
+    '$', '%', '^', '*', '/', ' ', '.', ':', '<', '>', '"', '\\', '|', '?',
+];
 
 pub fn select_file() -> Result<PathBuf, String> {
     match FileDialog::new()
