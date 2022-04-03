@@ -12,7 +12,7 @@ use cursive::{
     align::HAlign,
     theme::Effect,
     traits::{Nameable, Resizable, Scrollable},
-    views::{Dialog, DummyView, LinearLayout, Panel, SelectView, TextArea, TextView},
+    views::{Dialog, DialogFocus, DummyView, LinearLayout, Panel, SelectView, TextArea, TextView},
     Cursive,
 };
 use transform::{Options, Transformer};
@@ -36,9 +36,13 @@ fn select_file_and_directory(siv: &mut Cursive) {
             LinearLayout::vertical()
                 .child(DummyView)
                 .child(TextView::new(
-                    "Split CSV-file by category and filter (optional).",
+                    "Split CSV-file by category and filter (optional).\nOutput files are in format CSV and Excel.",
                 ))
-                .child(TextView::new("Output files are in format CSV and Excel."))
+                .child(DummyView)
+                .child(TextView::new("Note:"))
+                .child(TextView::new("Dates are automatically recognized if they have following format: \"d.m.yyyy hh:mm:ss\""))
+                .child(TextView::new("For example: \"1.3.2022 14:23:22\""))
+                .child(TextView::new("This will allow dates to be correctly formatted in excel files."))
                 .child(DummyView)
                 .child(
                     LinearLayout::horizontal()
@@ -154,7 +158,12 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
         Dialog::around(
             LinearLayout::vertical()
                 .child(DummyView)
-                .child(TextView::new("Select a filter:").style(Effect::Bold))
+                .child(TextView::new(format!(
+                    "Selected category: {}",
+                    options.get_selected_category()
+                )))
+                .child(DummyView)
+                .child(TextView::new("Select a filter (optional):").style(Effect::Bold))
                 .child(DummyView)
                 .child(
                     LinearLayout::horizontal()
@@ -171,11 +180,10 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
                 ),
         )
         .button("Skip", move |s| {
-            execute(s, skip_options.clone(), skip_headers.clone())
+            show_overview_display(s, skip_options.clone(), skip_headers.clone());
         })
         .button("Next", move |s| {
             let mut options = options.clone();
-
             options.set_filter(Some((
                 s.call_on_name("filterView", |view: &mut SelectView| {
                     view.selection().unwrap().to_string()
@@ -186,11 +194,39 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
                 })
                 .unwrap(),
             )));
-            execute(s, options, headers.clone())
-            // execute(s, options)
+            show_overview_display(s, options, headers.clone())
         })
         .title("Configuration"),
     );
+}
+
+fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRecord) {
+    let mut overview = LinearLayout::vertical()
+        .child(DummyView)
+        .child(TextView::new(format!(
+            "Category: {}",
+            options.get_selected_category()
+        )));
+
+    if let Some((filter_field, filter_value)) = options.get_filter() {
+        overview = overview.child(TextView::new(format!(
+            "Filter: '{}' equals to '{}'",
+            filter_field, filter_value
+        )))
+    }
+
+    let mut dialog = Dialog::around(overview)
+        .title("Overview")
+        .button("Abort", |s| s.quit())
+        .button("Execute", move |s| {
+            execute(s, options.clone(), headers.clone())
+        })
+        .h_align(HAlign::Right);
+
+    dialog.set_focus(DialogFocus::Button(1));
+
+    siv.pop_layer();
+    siv.add_layer(dialog);
 }
 
 fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {

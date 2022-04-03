@@ -1,3 +1,4 @@
+use chrono::{Datelike, NaiveDateTime, Timelike};
 use csv::{StringRecord, WriterBuilder};
 use std::{collections::HashMap, error::Error, path::PathBuf, vec};
 
@@ -77,10 +78,44 @@ impl Transformer {
                 for (row, record) in records.into_iter().enumerate() {
                     *excel_wl += 1;
                     self.write_to_running_view(format!("Excel lines added: {}", excel_wl));
+
                     for (col, field) in record.iter().enumerate() {
-                        worksheet
-                            .write_string(row as u32, col as u16, field, None)
-                            .unwrap();
+                        match NaiveDateTime::parse_from_str(field, "%-d.%-m.%Y %H:%M:%S") {
+                            Ok(datetime) => {
+                                let d = datetime.date();
+                                let t = datetime.time();
+                                let (year, month, day, hour, minute, second) = (
+                                    d.year() as i16,
+                                    d.month() as i8,
+                                    d.day() as i8,
+                                    t.hour() as i8,
+                                    t.minute() as i8,
+                                    t.second(),
+                                );
+                                worksheet
+                                    .write_datetime(
+                                        row as u32,
+                                        col as u16,
+                                        &xlsxwriter::DateTime::new(
+                                            year,
+                                            month,
+                                            day,
+                                            hour,
+                                            minute,
+                                            second.into(),
+                                        ),
+                                        Some(
+                                            &workbook
+                                                .add_format()
+                                                .set_num_format("dd.mm.yyyy hh:mm:ss"),
+                                        ),
+                                    )
+                                    .unwrap()
+                            }
+                            Err(_) => worksheet
+                                .write_string(row as u32, col as u16, field, None)
+                                .unwrap(),
+                        }
                     }
                 }
                 *excel_wl -= 1; // account for header
@@ -182,5 +217,13 @@ impl Options {
     pub fn set_filter(&mut self, filter: Option<(String, String)>) -> Self {
         self.filter = filter;
         self.to_owned()
+    }
+
+    pub fn get_selected_category(&self) -> String {
+        self.selected_category.clone()
+    }
+
+    pub fn get_filter(&self) -> Option<(String, String)> {
+        self.filter.clone()
     }
 }
