@@ -109,13 +109,7 @@ fn select_category_display(s: &mut Cursive, input_path: String, output_path: Str
 
     let headers = match get_headers_from_file(&PathBuf::from(&input_path)) {
         Ok(iter) => iter,
-        Err(error) => {
-            return s.add_layer(
-                Dialog::text(format!("Failed with {}", error.to_string()))
-                    .title("Error")
-                    .button("Close", |s| s.quit()),
-            )
-        }
+        Err(error) => return error_display(s, error.to_string()),
     };
 
     headers
@@ -284,17 +278,19 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
                 let error = error.to_string();
                 transformer
                     .sink
-                    .send(Box::new(move |s: &mut Cursive| {
-                        s.add_layer(
-                            Dialog::text(format!("Failed with {}", error))
-                                .title("Error")
-                                .button("Close", |s| s.quit()),
-                        );
-                    }))
+                    .send(Box::new(move |s: &mut Cursive| error_display(s, error)))
                     .unwrap()
             }
         };
     });
+}
+
+fn error_display(s: &mut Cursive, error: String) {
+    s.add_layer(
+        Dialog::text(format!("Failed with {}", error))
+            .title("Error")
+            .button("Close", |s| s.quit()),
+    );
 }
 
 /// Will be displayed during execution. Content will be updated within [`Transformer`].
@@ -310,7 +306,7 @@ fn progress_display(s: &mut Cursive) {
 /// Finished display
 fn finished_display(
     s: &mut Cursive,
-    (categories_total, csv_lines, csv_wl, excel_files): (i32, i32, i32, i32),
+    (cat_total, csv_rl, csv_wl, excel_wl): (i32, i32, i32, i32),
     file_paths: Option<(String, String)>,
 ) {
     s.pop_layer();
@@ -319,21 +315,15 @@ fn finished_display(
             LinearLayout::vertical()
                 .child(TextView::new("Finished."))
                 .child(DummyView)
-                .child(TextView::new(format!(
-                    "Categories:          {}",
-                    categories_total
-                )))
-                .child(TextView::new(format!("CSV lines read:      {}", csv_lines)))
+                .child(TextView::new(format!("Categories:          {}", cat_total)))
+                .child(TextView::new(format!("CSV lines read:      {}", csv_rl)))
                 .child(TextView::new(format!("CSV lines written:   {}", csv_wl)))
-                .child(TextView::new(format!(
-                    "Excel lines written: {}",
-                    excel_files
-                ))),
+                .child(TextView::new(format!("Excel lines written: {}", excel_wl))),
         )
         .title("Success")
         .button("New", move |s| {
             select_file_and_directory_display(s, file_paths.clone())
         })
         .button("Close", |s| s.quit()),
-    );
+    )
 }

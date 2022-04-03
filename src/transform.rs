@@ -1,11 +1,10 @@
-use chrono::{Datelike, NaiveDateTime, Timelike};
 use csv::{StringRecord, WriterBuilder};
 use std::{collections::HashMap, error::Error, path::PathBuf, vec};
 
 use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
 
-use crate::utils::{replace_all_invalid_characters, Header};
+use crate::utils::{replace_all_invalid_characters, try_parse_time, Header};
 
 pub struct Transformer {
     pub sink: CbSink,
@@ -88,7 +87,7 @@ impl Transformer {
                 ))
             }
         };
-        std::fs::create_dir_all(self.options.output.as_path()).unwrap();
+        std::fs::create_dir(self.options.output.as_path()).unwrap();
     }
 
     fn write_xlsx(
@@ -98,6 +97,7 @@ impl Transformer {
         excel_wl: &mut i32,
     ) -> Result<(), Box<dyn Error>> {
         let workbook = Workbook::new(path_xlsx.to_str().unwrap());
+        let date_format = Some(workbook.add_format().set_num_format("dd.mm.yyyy hh:mm:ss"));
         match workbook.add_worksheet(None) {
             Ok(mut worksheet) => {
                 for (row, record) in records.into_iter().enumerate() {
@@ -105,46 +105,21 @@ impl Transformer {
                     self.write_to_running_view(format!("Excel lines added: {}", excel_wl));
 
                     for (col, field) in record.iter().enumerate() {
-                        match NaiveDateTime::parse_from_str(field, "%-d.%-m.%Y %H:%M:%S") {
-                            Ok(datetime) => {
-                                let d = datetime.date();
-                                let t = datetime.time();
-                                let (year, month, day, hour, minute, second) = (
-                                    d.year() as i16,
-                                    d.month() as i8,
-                                    d.day() as i8,
-                                    t.hour() as i8,
-                                    t.minute() as i8,
-                                    t.second(),
-                                );
-                                worksheet
-                                    .write_datetime(
-                                        row as u32,
-                                        col as u16,
-                                        &xlsxwriter::DateTime::new(
-                                            year,
-                                            month,
-                                            day,
-                                            hour,
-                                            minute,
-                                            second.into(),
-                                        ),
-                                        Some(
-                                            &workbook
-                                                .add_format()
-                                                .set_num_format("dd.mm.yyyy hh:mm:ss"),
-                                        ),
-                                    )
-                                    .unwrap()
+                        match try_parse_time(field) {
+                            Ok(datetime) => worksheet.write_datetime(
+                                row as u32,
+                                col as u16,
+                                &datetime,
+                                date_format.as_ref(),
+                            )?,
+                            Err(_) => {
+                                worksheet.write_string(row as u32, col as u16, field, None)?
                             }
-                            Err(_) => worksheet
-                                .write_string(row as u32, col as u16, field, None)
-                                .unwrap(),
-                        }
+                        };
                     }
                 }
                 *excel_wl -= 1; // account for header
-                workbook.close().unwrap();
+                workbook.close()?;
                 Ok(())
             }
             Err(error) => return Err(Box::new(error)),
@@ -175,8 +150,8 @@ impl Transformer {
         let (mut csv_rl, mut cat_total) = (0, 0);
         let category_idx = rdr.get_field(&self.options.selected_category)?;
         let mut filter_option = None;
-        if let Some((field, filter_name)) = self.options.filter.clone() {
-            filter_option = Some((rdr.get_field(&field)?, filter_name));
+        if let Some((filter_field, filter_value)) = self.options.filter.clone() {
+            filter_option = Some((rdr.get_field(&filter_field)?, filter_value));
         }
         for record in rdr.records() {
             let record = record?;
@@ -192,18 +167,14 @@ impl Transformer {
             self.write_to_running_view(format!("CSV lines read {}", csv_rl));
 
             if let Some(cat_field) = record.get(category_idx) {
+                let cat_field_key = cat_field.to_string().to_lowercase();
                 if !categories.contains_key(&cat_field.to_lowercase()) {
                     cat_total += 1;
-
                     categories
-                        .entry(cat_field.to_string().to_lowercase())
+                        .entry(cat_field_key.clone())
                         .or_insert((vec![self.headers.clone()], format!("{}", cat_field)));
                 }
-                categories
-                    .get_mut(&cat_field.to_string().to_lowercase())
-                    .unwrap()
-                    .0
-                    .push(record);
+                categories.get_mut(&cat_field_key).unwrap().0.push(record);
             }
         }
         Ok((csv_rl, cat_total, categories))
