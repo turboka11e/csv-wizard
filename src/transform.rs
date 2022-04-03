@@ -54,13 +54,11 @@ impl Transformer {
 
                 let (mut csv_wl, mut excel_wl) = (0, 0);
 
-                self.options.output = self.options.output.join(replace_all_invalid_characters(
-                    &self.options.selected_category,
-                ));
-                std::fs::create_dir_all(self.options.output.as_path()).unwrap();
+                self.create_dir_for_csv_and_xslx();
 
-                for (records, category) in categories.values().into_iter() {
-                    let (path_csv, path_xlsx) = self.get_csv_xlsx_path(category.to_string());
+                for (records, category_sub_collection) in categories.values().into_iter() {
+                    let (path_csv, path_xlsx) =
+                        self.get_csv_xlsx_path(category_sub_collection.to_string());
                     self.write_csv(path_csv, &records, &mut csv_wl)?;
                     self.write_xlsx(path_xlsx, &records, &mut excel_wl)?;
                 }
@@ -69,6 +67,26 @@ impl Transformer {
             }
             Err(error) => Err(Box::new(error)),
         }
+    }
+
+    fn create_dir_for_csv_and_xslx(&mut self) {
+        match &self.options.filter {
+            Some((filter_field, filter_value)) => {
+                self.options.output =
+                    self.options
+                        .output
+                        .join(replace_all_invalid_characters(&format!(
+                            "{}_{}_{}",
+                            self.options.selected_category, filter_field, filter_value
+                        )))
+            }
+            None => {
+                self.options.output = self.options.output.join(replace_all_invalid_characters(
+                    &self.options.selected_category,
+                ))
+            }
+        };
+        std::fs::create_dir_all(self.options.output.as_path()).unwrap();
     }
 
     fn write_xlsx(
@@ -160,14 +178,14 @@ impl Transformer {
         }
         for record in rdr.records() {
             let record = record?;
-            
+
             if let Some((field_idx, filter_name)) = &filter_option {
                 let value = record.get(*field_idx).unwrap();
                 if value != filter_name {
                     continue;
                 }
             };
-            
+
             csv_rl += 1;
             self.write_to_running_view(format!("CSV lines read {}", csv_rl));
 
@@ -175,15 +193,9 @@ impl Transformer {
                 if !categories.contains_key(&cat_field.to_lowercase()) {
                     cat_total += 1;
 
-                    let file_name = if let Some((_, filter_name)) = &filter_option {
-                        (&cat_field).to_string() + filter_name
-                    } else {
-                        (&cat_field).to_string()
-                    };
-
                     categories
                         .entry(cat_field.to_string().to_lowercase())
-                        .or_insert((vec![self.headers.clone()], file_name));
+                        .or_insert((vec![self.headers.clone()], format!("{}", cat_field)));
                 }
                 categories
                     .get_mut(&cat_field.to_string().to_lowercase())
@@ -195,13 +207,20 @@ impl Transformer {
         Ok((csv_rl, cat_total, categories))
     }
 
-    fn get_csv_xlsx_path(&mut self, category: String) -> (PathBuf, PathBuf) {
+    /// Creates the file paths for csv and xlsx.
+    fn get_csv_xlsx_path(&mut self, category_sub_collection: String) -> (PathBuf, PathBuf) {
         let (mut path_csv, mut path_xlsx) =
             (self.options.output.clone(), self.options.output.clone());
-        let valid_cat_name = replace_all_invalid_characters(&category);
+        let valid_cat_name = replace_all_invalid_characters(&category_sub_collection);
         path_csv.push(valid_cat_name.clone() + ".csv");
         path_xlsx.push(valid_cat_name + ".xlsx");
         (path_csv, path_xlsx)
+    }
+
+    pub fn get_input_output_path(&self) -> Option<(String, String)> {
+        let input = self.options.input.to_str().unwrap().to_string();
+        let output = self.options.output.to_str().unwrap().to_string();
+        Some((input, output))
     }
 }
 

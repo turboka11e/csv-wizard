@@ -24,72 +24,76 @@ fn main() {
     siv.set_window_title("CSV Wizard");
     siv.add_global_callback('q', |s| s.quit());
 
-    select_file_and_directory(&mut siv);
+    select_file_and_directory(&mut siv, None);
 
     // Starts the event loop.
     siv.run();
 }
 
-fn select_file_and_directory(siv: &mut Cursive) {
+fn select_file_and_directory(siv: &mut Cursive, file_paths: Option<(String, String)>) {
+    let (input_path, output_path) = match file_paths {
+        Some((input, output)) => (input, output),
+        None => ("".to_string(), "".to_string()),
+    };
+
     siv.pop_layer();
-    siv.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(DummyView)
-                .child(TextView::new(
-                    "Split CSV-file by category and filter (optional).\nOutput files are in format CSV and Excel.",
-                ))
-                .child(DummyView)
-                .child(TextView::new("Note:"))
-                .child(TextView::new("Dates are automatically recognized with following format: \"d.m.yyyy hh:mm:ss\""))
-                .child(TextView::new("For example: \"1.3.2022 14:23:22\""))
-                .child(TextView::new("This will allow dates to be correctly formatted in excel files."))
-                .child(DummyView)
-                .child(
-                    LinearLayout::horizontal()
-                        .child(TextView::new(" Input:  ").style(Effect::Bold))
-                        .child(TextView::new("").with_name("input").min_width(30)),
-                )
-                .child(
-                    LinearLayout::horizontal()
-                        .child(TextView::new("Output:  ").style(Effect::Bold))
-                        .child(TextView::new("").with_name("output").min_width(30)),
-                ),
-        )
-        .title("CSV Wizard")
-        .button("Input file", |s| match select_file() {
-            Ok(input_path) => s
-                .call_on_name("input", |view: &mut TextView| {
-                    view.set_content(input_path.to_str().unwrap())
-                })
-                .unwrap(),
-            Err(err) => s.add_layer(Dialog::info(err)),
-        })
-        .button("Output folder", |s| match select_directory() {
-            Ok(input_path) => s
-                .call_on_name("output", |view: &mut TextView| {
-                    view.set_content(input_path.to_str().unwrap())
-                })
-                .unwrap(),
-            Err(err) => s.add_layer(Dialog::info(err)),
-        })
-        .button("Next", |s| {
-            let input_path = s
-                .call_on_name("input", |view: &mut TextView| view.get_content())
-                .unwrap();
-            let output_path = s
-                .call_on_name("output", |view: &mut TextView| view.get_content())
-                .unwrap();
+    let select_file_and_directory_dialog = Dialog::around(
+        LinearLayout::vertical()
+            .child(DummyView)
+            .child(TextView::new(
+                "Split CSV-file by category and filter (optional).\nOutput files are in format CSV and Excel.",
+            ))
+            .child(DummyView)
+            .child(TextView::new("Note:"))
+            .child(TextView::new("Dates are automatically recognized with following format: \"d.m.yyyy hh:mm:ss\""))
+            .child(TextView::new("For example: \"1.3.2022 14:23:22\""))
+            .child(TextView::new("This will allow dates to be correctly formatted in excel files."))
+            .child(DummyView)
+            .child(
+                LinearLayout::horizontal()
+                    .child(TextView::new(" Input:  ").style(Effect::Bold))
+                    .child(TextView::new(input_path).with_name("input").min_width(30)),
+            )
+            .child(
+                LinearLayout::horizontal()
+                    .child(TextView::new("Output:  ").style(Effect::Bold))
+                    .child(TextView::new(output_path).with_name("output").min_width(30)),
+            ),
+    )
+    .title("CSV Wizard")
+    .button("Input file", |s| match select_file() {
+        Ok(input_path) => s
+            .call_on_name("input", |view: &mut TextView| {
+                view.set_content(input_path.to_str().unwrap())
+            })
+            .unwrap(),
+        Err(err) => s.add_layer(Dialog::info(err)),
+    })
+    .button("Output folder", |s| match select_directory() {
+        Ok(input_path) => s
+            .call_on_name("output", |view: &mut TextView| {
+                view.set_content(input_path.to_str().unwrap())
+            })
+            .unwrap(),
+        Err(err) => s.add_layer(Dialog::info(err)),
+    })
+    .button("Next", |s| {
+        let input_path = s
+            .call_on_name("input", |view: &mut TextView| view.get_content())
+            .unwrap();
+        let output_path = s
+            .call_on_name("output", |view: &mut TextView| view.get_content())
+            .unwrap();
 
-            if input_path.source().is_empty() || output_path.source().is_empty() {
-                return s.add_layer(Dialog::info("Input or output missing."));
-            }
-
-            select_category(s, input_path.source().to_string(), output_path.source().to_string())
+        if input_path.source().is_empty() || output_path.source().is_empty() {
+            return s.add_layer(Dialog::info("Input or output missing."));
         }
-        )
-        .button("Quit", |s| s.quit()),
-    );
+
+        select_category(s, input_path.source().to_string(), output_path.source().to_string())
+    }
+    )
+    .button("Quit", |s| s.quit());
+    siv.add_layer(select_file_and_directory_dialog);
 }
 
 /// Select Category Display
@@ -117,6 +121,8 @@ fn select_category(s: &mut Cursive, input_path: String, output_path: String) {
         .iter()
         .for_each(|s| select.add_item(s.to_string(), s.to_string()));
 
+    let file_paths = Some((input_path.clone(), output_path.clone()));
+
     s.pop_layer();
     s.add_layer(
         Dialog::around(
@@ -141,7 +147,9 @@ fn select_category(s: &mut Cursive, input_path: String, output_path: String) {
                 ),
         )
         .title("Configuration")
-        .button("Back", |s| select_file_and_directory(s)),
+        .button("Back", move |s| {
+            select_file_and_directory(s, file_paths.clone())
+        }),
     );
 }
 
@@ -190,6 +198,9 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
             back_options.output.to_str().unwrap().to_string(),
         )
     })
+    .button("Next without filter", move |s| {
+        show_overview_display(s, skip_options.clone(), skip_headers.clone());
+    })
     .button("Next with filter", move |s| {
         let mut options = options.clone();
         options.set_filter(Some((
@@ -203,9 +214,6 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
             .unwrap(),
         )));
         show_overview_display(s, options, headers.clone())
-    })
-    .button("Next without filter", move |s| {
-        show_overview_display(s, skip_options.clone(), skip_headers.clone());
     })
     .title("Configuration");
 
@@ -264,10 +272,12 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
 
     std::thread::spawn(move || {
         let mut transformer = transformer.lock().unwrap();
+        let file_paths = transformer.get_input_output_path();
         match transformer.execute() {
             Ok((csv_lines, csv_wl, excel_files, categories_total)) => transformer
                 .sink
                 .send(Box::new(move |s: &mut Cursive| {
+                    s.pop_layer();
                     s.add_layer(
                         Dialog::around(
                             LinearLayout::vertical()
@@ -285,6 +295,9 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
                                 ))),
                         )
                         .title("Success")
+                        .button("New", move |s| {
+                            select_file_and_directory(s, file_paths.clone())
+                        })
                         .button("Close", |s| s.quit()),
                     );
                 }))
