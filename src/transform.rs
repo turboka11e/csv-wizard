@@ -71,21 +71,18 @@ impl Transformer {
     }
 
     fn create_dir_for_csv_and_xslx(&mut self) {
-        match &self.options.filter {
+        self.options.output = match &self.options.filter {
             Some((filter_field, filter_value)) => {
-                self.options.output =
-                    self.options
-                        .output
-                        .join(replace_all_invalid_characters(&format!(
-                            "{}_{}_{}",
-                            self.options.selected_category, filter_field, filter_value
-                        )))
+                self.options
+                    .output
+                    .join(replace_all_invalid_characters(&format!(
+                        "{}_{}_{}",
+                        self.options.selected_category, filter_field, filter_value
+                    )))
             }
-            None => {
-                self.options.output = self.options.output.join(replace_all_invalid_characters(
-                    &self.options.selected_category,
-                ))
-            }
+            None => self.options.output.join(replace_all_invalid_characters(
+                &self.options.selected_category,
+            )),
         };
         std::fs::create_dir(self.options.output.as_path()).unwrap();
     }
