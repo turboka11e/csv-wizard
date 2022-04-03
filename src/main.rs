@@ -40,7 +40,7 @@ fn select_file_and_directory(siv: &mut Cursive) {
                 ))
                 .child(DummyView)
                 .child(TextView::new("Note:"))
-                .child(TextView::new("Dates are automatically recognized if they have following format: \"d.m.yyyy hh:mm:ss\""))
+                .child(TextView::new("Dates are automatically recognized with following format: \"d.m.yyyy hh:mm:ss\""))
                 .child(TextView::new("For example: \"1.3.2022 14:23:22\""))
                 .child(TextView::new("This will allow dates to be correctly formatted in excel files."))
                 .child(DummyView)

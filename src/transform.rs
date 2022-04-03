@@ -40,10 +40,10 @@ impl Transformer {
             .unwrap();
     }
 
-    /// Execute will read a csv and then write split by category to potentially multiple csv and excel files.
+    /// Execute will read a csv and then write to files by category and filter (optional).
     ///
-    /// The value in the Hashmap is (Records, first field name for that category) -> Background: Windows doesnt differentiate between upper and lowercase.
-    /// Because the category name will be used for the file test.csv and Test.csv would overwrite each other and corrupt the result.
+    /// The value in the Hashmap is (Records, first field name for that category) -> Background: Windows doesn't differentiate between upper and lowercase.
+    /// Hence test.csv and Test.csv would overwrite each other and corrupt the result.
     pub fn execute(&mut self) -> Result<(i32, i32, i32, i32), Box<dyn Error>> {
         match csv::ReaderBuilder::new()
             .delimiter(b';')
@@ -53,6 +53,11 @@ impl Transformer {
                 let (csv_rl, cat_total, categories) = self.read_csv(rdr)?;
 
                 let (mut csv_wl, mut excel_wl) = (0, 0);
+
+                self.options.output = self.options.output.join(replace_all_invalid_characters(
+                    &self.options.selected_category,
+                ));
+                std::fs::create_dir_all(self.options.output.as_path()).unwrap();
 
                 for (records, category) in categories.values().into_iter() {
                     let (path_csv, path_xlsx) = self.get_csv_xlsx_path(category.to_string());
@@ -154,16 +159,17 @@ impl Transformer {
             filter_option = Some((rdr.get_field(&field)?, filter_name));
         }
         for record in rdr.records() {
-            csv_rl += 1;
             let record = record?;
-            self.write_to_running_view(format!("CSV lines read {}", csv_rl));
-
+            
             if let Some((field_idx, filter_name)) = &filter_option {
                 let value = record.get(*field_idx).unwrap();
                 if value != filter_name {
                     continue;
                 }
             };
+            
+            csv_rl += 1;
+            self.write_to_running_view(format!("CSV lines read {}", csv_rl));
 
             if let Some(cat_field) = record.get(category_idx) {
                 if !categories.contains_key(&cat_field.to_lowercase()) {
