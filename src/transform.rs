@@ -4,7 +4,10 @@ use std::{collections::HashMap, error::Error, path::PathBuf, vec};
 use cursive::{views::TextView, CbSink, Cursive};
 use xlsxwriter::Workbook;
 
-use crate::utils::{replace_all_invalid_characters, try_parse_time, Header};
+use crate::{
+    errors::DirectoryError,
+    utils::{replace_all_invalid_characters, try_parse_time, Header},
+};
 
 pub struct Transformer {
     pub sink: CbSink,
@@ -55,7 +58,7 @@ impl Transformer {
 
                 let (mut csv_wl, mut excel_wl) = (0, 0);
 
-                self.create_dir_for_csv_and_xslx();
+                self.create_dir_for_csv_and_xslx()?;
 
                 for (records, category_sub_collection) in categories.values().into_iter() {
                     let (path_csv, path_xlsx) =
@@ -70,7 +73,7 @@ impl Transformer {
         }
     }
 
-    fn create_dir_for_csv_and_xslx(&mut self) {
+    fn create_dir_for_csv_and_xslx(&mut self) -> Result<(), Box<dyn Error>> {
         self.options.output = self.options.output.join(match &self.options.filter {
             Some((filter_field, filter_value)) => replace_all_invalid_characters(&format!(
                 "{}_{}_{}",
@@ -78,7 +81,12 @@ impl Transformer {
             )),
             None => replace_all_invalid_characters(&self.options.selected_category),
         });
-        std::fs::create_dir(self.options.output.as_path()).unwrap();
+        if self.options.output.exists() {
+            Err(Box::new(DirectoryError))
+        } else {
+            std::fs::create_dir(self.options.output.as_path())?;
+            Ok(())
+        }
     }
 
     fn write_xlsx(
