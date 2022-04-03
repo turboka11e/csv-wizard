@@ -24,13 +24,14 @@ fn main() {
     siv.set_window_title("CSV Wizard");
     siv.add_global_callback('q', |s| s.quit());
 
-    select_file_and_directory(&mut siv, None);
+    select_file_and_directory_display(&mut siv, None);
 
     // Starts the event loop.
     siv.run();
 }
 
-fn select_file_and_directory(siv: &mut Cursive, file_paths: Option<(String, String)>) {
+/// Start screen
+fn select_file_and_directory_display(siv: &mut Cursive, file_paths: Option<(String, String)>) {
     let (input_path, output_path) = match file_paths {
         Some((input, output)) => (input, output),
         None => ("".to_string(), "".to_string()),
@@ -89,7 +90,7 @@ fn select_file_and_directory(siv: &mut Cursive, file_paths: Option<(String, Stri
             return s.add_layer(Dialog::info("Input or output missing."));
         }
 
-        select_category(s, input_path.source().to_string(), output_path.source().to_string())
+        select_category_display(s, input_path.source().to_string(), output_path.source().to_string())
     }
     )
     .button("Quit", |s| s.quit());
@@ -98,7 +99,8 @@ fn select_file_and_directory(siv: &mut Cursive, file_paths: Option<(String, Stri
 
 /// Select Category Display
 ///
-fn select_category(s: &mut Cursive, input_path: String, output_path: String) {
+/// Reads file for headers. Allows user to select a category.
+fn select_category_display(s: &mut Cursive, input_path: String, output_path: String) {
     let mut select = SelectView::new()
         // Center the text horizontally
         .h_align(HAlign::Center)
@@ -141,19 +143,20 @@ fn select_category(s: &mut Cursive, input_path: String, output_path: String) {
                                 None,
                             );
 
-                            select_filter(s, options, headers.clone());
+                            select_filter_display(s, options, headers.clone());
                         })
                         .scrollable(),
                 ),
         )
         .title("Configuration")
         .button("Back", move |s| {
-            select_file_and_directory(s, file_paths.clone())
+            select_file_and_directory_display(s, file_paths.clone())
         }),
     );
 }
 
-fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
+/// Select filter display
+fn select_filter_display(s: &mut Cursive, options: Options, headers: StringRecord) {
     let (back_options, skip_options, skip_headers) =
         (options.clone(), options.clone(), headers.clone());
     let mut select = SelectView::new()
@@ -192,14 +195,14 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
             ),
     )
     .button("Back", move |s| {
-        select_category(
+        select_category_display(
             s,
             back_options.input.to_str().unwrap().to_string(),
             back_options.output.to_str().unwrap().to_string(),
         )
     })
     .button("Next without filter", move |s| {
-        show_overview_display(s, skip_options.clone(), skip_headers.clone());
+        overview_display(s, skip_options.clone(), skip_headers.clone());
     })
     .button("Next with filter", move |s| {
         let mut options = options.clone();
@@ -213,7 +216,7 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
             })
             .unwrap(),
         )));
-        show_overview_display(s, options, headers.clone())
+        overview_display(s, options, headers.clone())
     })
     .title("Configuration");
 
@@ -223,7 +226,8 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
     s.add_layer(select_dialog);
 }
 
-fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRecord) {
+/// Overview display
+fn overview_display(siv: &mut Cursive, options: Options, headers: StringRecord) {
     let mut overview = LinearLayout::vertical()
         .child(DummyView)
         .child(TextView::new(format!(
@@ -243,7 +247,7 @@ fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRec
     let mut dialog = Dialog::around(overview)
         .title("Overview")
         .button("Back", move |s| {
-            select_filter(s, back_options.clone(), back_headers.clone())
+            select_filter_display(s, back_options.clone(), back_headers.clone())
         })
         .button("Abort", |s| s.quit())
         .button("Execute", move |s| {
@@ -258,12 +262,8 @@ fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRec
 }
 
 fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
-    s.pop_layer();
-    s.add_layer(
-        Dialog::new()
-            .title("Execution")
-            .content(TextView::new("").with_name("running").min_width(15)),
-    );
+    progress_display(s);
+
     let transformer = Arc::new(Mutex::new(Transformer::new(
         s.cb_sink().clone(),
         options,
@@ -274,32 +274,10 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
         let mut transformer = transformer.lock().unwrap();
         let file_paths = transformer.get_input_output_path();
         match transformer.execute() {
-            Ok((csv_lines, csv_wl, excel_files, categories_total)) => transformer
+            Ok(stats) => transformer
                 .sink
                 .send(Box::new(move |s: &mut Cursive| {
-                    s.pop_layer();
-                    s.add_layer(
-                        Dialog::around(
-                            LinearLayout::vertical()
-                                .child(TextView::new("Finished."))
-                                .child(DummyView)
-                                .child(TextView::new(format!(
-                                    "Categories:          {}",
-                                    categories_total
-                                )))
-                                .child(TextView::new(format!("CSV lines read:      {}", csv_lines)))
-                                .child(TextView::new(format!("CSV lines written:   {}", csv_wl)))
-                                .child(TextView::new(format!(
-                                    "Excel lines written: {}",
-                                    excel_files
-                                ))),
-                        )
-                        .title("Success")
-                        .button("New", move |s| {
-                            select_file_and_directory(s, file_paths.clone())
-                        })
-                        .button("Close", |s| s.quit()),
-                    );
+                    finished_display(s, stats, file_paths);
                 }))
                 .unwrap(),
             Err(error) => {
@@ -317,4 +295,45 @@ fn execute(s: &mut Cursive, options: Options, headers: StringRecord) {
             }
         };
     });
+}
+
+/// Will be displayed during execution. Content will be updated within [`Transformer`].
+fn progress_display(s: &mut Cursive) {
+    s.pop_layer();
+    s.add_layer(
+        Dialog::new()
+            .title("Execution")
+            .content(TextView::new("").with_name("running").min_width(15)),
+    );
+}
+
+/// Finished display
+fn finished_display(
+    s: &mut Cursive,
+    (categories_total, csv_lines, csv_wl, excel_files): (i32, i32, i32, i32),
+    file_paths: Option<(String, String)>,
+) {
+    s.pop_layer();
+    s.add_layer(
+        Dialog::around(
+            LinearLayout::vertical()
+                .child(TextView::new("Finished."))
+                .child(DummyView)
+                .child(TextView::new(format!(
+                    "Categories:          {}",
+                    categories_total
+                )))
+                .child(TextView::new(format!("CSV lines read:      {}", csv_lines)))
+                .child(TextView::new(format!("CSV lines written:   {}", csv_wl)))
+                .child(TextView::new(format!(
+                    "Excel lines written: {}",
+                    excel_files
+                ))),
+        )
+        .title("Success")
+        .button("New", move |s| {
+            select_file_and_directory_display(s, file_paths.clone())
+        })
+        .button("Close", |s| s.quit()),
+    );
 }
