@@ -31,6 +31,7 @@ fn main() {
 }
 
 fn select_file_and_directory(siv: &mut Cursive) {
+    siv.pop_layer();
     siv.add_layer(
         Dialog::around(
             LinearLayout::vertical()
@@ -72,32 +73,35 @@ fn select_file_and_directory(siv: &mut Cursive) {
                 .unwrap(),
             Err(err) => s.add_layer(Dialog::info(err)),
         })
-        .button("Next", |s| select_category(s))
+        .button("Next", |s| {
+            let input_path = s
+                .call_on_name("input", |view: &mut TextView| view.get_content())
+                .unwrap();
+            let output_path = s
+                .call_on_name("output", |view: &mut TextView| view.get_content())
+                .unwrap();
+
+            if input_path.source().is_empty() || output_path.source().is_empty() {
+                return s.add_layer(Dialog::info("Input or output missing."));
+            }
+
+            select_category(s, input_path.source().to_string(), output_path.source().to_string())
+        }
+        )
         .button("Quit", |s| s.quit()),
     );
 }
 
 /// Select Category Display
 ///
-fn select_category(s: &mut Cursive) {
-    let input_path = s
-        .call_on_name("input", |view: &mut TextView| view.get_content())
-        .unwrap();
-    let output_path = s
-        .call_on_name("output", |view: &mut TextView| view.get_content())
-        .unwrap();
-
-    if input_path.source().is_empty() || output_path.source().is_empty() {
-        return s.add_layer(Dialog::info("Input or output missing."));
-    }
-
+fn select_category(s: &mut Cursive, input_path: String, output_path: String) {
     let mut select = SelectView::new()
         // Center the text horizontally
         .h_align(HAlign::Center)
         // Use keyboard to jump to the pressed letters
         .autojump();
 
-    let headers = match get_headers_from_file(&PathBuf::from(&input_path.source())) {
+    let headers = match get_headers_from_file(&PathBuf::from(&input_path)) {
         Ok(iter) => iter,
         Err(error) => {
             return s.add_layer(
@@ -126,8 +130,8 @@ fn select_category(s: &mut Cursive) {
                             // Show a popup whenever the user presses <Enter>
                             let options = Options::new(
                                 selected_category.to_string(),
-                                PathBuf::from(input_path.source()),
-                                PathBuf::from(output_path.source()),
+                                PathBuf::from(input_path.clone()),
+                                PathBuf::from(output_path.clone()),
                                 None,
                             );
 
@@ -136,12 +140,14 @@ fn select_category(s: &mut Cursive) {
                         .scrollable(),
                 ),
         )
-        .title("Configuration"),
+        .title("Configuration")
+        .button("Back", |s| select_file_and_directory(s)),
     );
 }
 
 fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
-    let (skip_options, skip_headers) = (options.clone(), headers.clone());
+    let (back_options, skip_options, skip_headers) =
+        (options.clone(), options.clone(), headers.clone());
     let mut select = SelectView::new()
         // Center the text horizontally
         .h_align(HAlign::Center)
@@ -153,51 +159,60 @@ fn select_filter(s: &mut Cursive, options: Options, headers: StringRecord) {
         .into_iter()
         .for_each(|s| select.add_item(s.clone(), s.to_string()));
 
-    s.pop_layer();
-    s.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(DummyView)
-                .child(TextView::new(format!(
-                    "Selected category: {}",
-                    options.get_selected_category()
-                )))
-                .child(DummyView)
-                .child(TextView::new("Select a filter (optional):").style(Effect::Bold))
-                .child(DummyView)
-                .child(
-                    LinearLayout::horizontal()
-                        .child(
-                            Panel::new(select.with_name("filterView").scrollable())
-                                .title("Field")
-                                .fixed_width(20),
-                        )
-                        .child(
-                            LinearLayout::vertical()
-                                .child(TextView::new("Equals to").center().min_width(20))
-                                .child(TextArea::new().with_name("filterEquals")),
-                        ),
-                ),
+    let mut select_dialog = Dialog::around(
+        LinearLayout::vertical()
+            .child(DummyView)
+            .child(TextView::new(format!(
+                "Selected category: {}",
+                options.get_selected_category()
+            )))
+            .child(DummyView)
+            .child(TextView::new("Select a filter (optional):").style(Effect::Bold))
+            .child(DummyView)
+            .child(
+                LinearLayout::horizontal()
+                    .child(
+                        Panel::new(select.with_name("filterView").scrollable())
+                            .title("Field")
+                            .fixed_width(20),
+                    )
+                    .child(
+                        LinearLayout::vertical()
+                            .child(TextView::new("Equals to").center().min_width(20))
+                            .child(TextArea::new().with_name("filterEquals")),
+                    ),
+            ),
+    )
+    .button("Back", move |s| {
+        select_category(
+            s,
+            back_options.input.to_str().unwrap().to_string(),
+            back_options.output.to_str().unwrap().to_string(),
         )
-        .button("Skip", move |s| {
-            show_overview_display(s, skip_options.clone(), skip_headers.clone());
-        })
-        .button("Next", move |s| {
-            let mut options = options.clone();
-            options.set_filter(Some((
-                s.call_on_name("filterView", |view: &mut SelectView| {
-                    view.selection().unwrap().to_string()
-                })
-                .unwrap(),
-                s.call_on_name("filterEquals", |view: &mut TextArea| {
-                    view.get_content().to_string()
-                })
-                .unwrap(),
-            )));
-            show_overview_display(s, options, headers.clone())
-        })
-        .title("Configuration"),
-    );
+    })
+    .button("Next with filter", move |s| {
+        let mut options = options.clone();
+        options.set_filter(Some((
+            s.call_on_name("filterView", |view: &mut SelectView| {
+                view.selection().unwrap().to_string()
+            })
+            .unwrap(),
+            s.call_on_name("filterEquals", |view: &mut TextArea| {
+                view.get_content().to_string()
+            })
+            .unwrap(),
+        )));
+        show_overview_display(s, options, headers.clone())
+    })
+    .button("Next without filter", move |s| {
+        show_overview_display(s, skip_options.clone(), skip_headers.clone());
+    })
+    .title("Configuration");
+
+    select_dialog.set_focus(DialogFocus::Button(3));
+
+    s.pop_layer();
+    s.add_layer(select_dialog);
 }
 
 fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRecord) {
@@ -215,15 +230,20 @@ fn show_overview_display(siv: &mut Cursive, options: Options, headers: StringRec
         )))
     }
 
+    let (back_options, back_headers) = (options.clone(), headers.clone());
+
     let mut dialog = Dialog::around(overview)
         .title("Overview")
+        .button("Back", move |s| {
+            select_filter(s, back_options.clone(), back_headers.clone())
+        })
         .button("Abort", |s| s.quit())
         .button("Execute", move |s| {
             execute(s, options.clone(), headers.clone())
         })
         .h_align(HAlign::Right);
 
-    dialog.set_focus(DialogFocus::Button(1));
+    dialog.set_focus(DialogFocus::Button(2));
 
     siv.pop_layer();
     siv.add_layer(dialog);

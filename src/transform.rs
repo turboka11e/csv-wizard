@@ -16,8 +16,8 @@ pub struct Transformer {
 #[derive(Clone, Debug)]
 pub struct Options {
     selected_category: String,
-    input: PathBuf,
-    output: PathBuf,
+    pub input: PathBuf,
+    pub output: PathBuf,
     filter: Option<(String, String)>,
 }
 
