@@ -208,9 +208,12 @@ impl Transformer {
     }
 
     /// Creates the file paths for csv and xlsx.
-    fn get_csv_xlsx_path(&mut self, category_sub_collection: String) -> (PathBuf, PathBuf) {
+    fn get_csv_xlsx_path(&mut self, mut category_sub_collection: String) -> (PathBuf, PathBuf) {
         let (mut path_csv, mut path_xlsx) =
             (self.options.output.clone(), self.options.output.clone());
+        if category_sub_collection.is_empty() {
+            category_sub_collection = format!("Empty_{}", self.options.selected_category)
+        }
         let valid_cat_name = replace_all_invalid_characters(&category_sub_collection);
         path_csv.push(valid_cat_name.clone() + ".csv");
         path_xlsx.push(valid_cat_name + ".xlsx");
