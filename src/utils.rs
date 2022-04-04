@@ -1,7 +1,7 @@
 use chrono::{Datelike, NaiveDateTime, Timelike};
 use csv::{Reader, StringRecord};
 use native_dialog::FileDialog;
-use std::{error::Error, fs::File, path::PathBuf};
+use std::{error::Error, fs::File, path::{PathBuf, Path}};
 
 use crate::errors::HeaderError;
 
@@ -58,7 +58,7 @@ pub fn replace_all_invalid_characters(field: &str) -> String {
     field
 }
 
-pub fn get_headers_from_file(file: &PathBuf) -> Result<StringRecord, Box<dyn Error>> {
+pub fn get_headers_from_file(file: &Path) -> Result<StringRecord, Box<dyn Error>> {
     if let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(b';').from_path(file) {
         return Ok(rdr.headers().cloned()?);
     }

@@ -23,6 +23,10 @@ pub struct Options {
     filter: Option<(String, String)>,
 }
 
+/// (csv_rl, cat_total, HashMap<category_key.lowercase, ([Records], first_cat_name))
+type CsvReadResult =
+    Result<(i32, i32, HashMap<String, (Vec<StringRecord>, String)>), Box<dyn Error>>;
+
 impl Transformer {
     pub fn new(sink: CbSink, options: Options, headers: StringRecord) -> Transformer {
         Transformer {
@@ -60,11 +64,11 @@ impl Transformer {
 
                 self.create_dir_for_csv_and_xslx()?;
 
-                for (records, category_sub_collection) in categories.values().into_iter() {
+                for (records, category_sub_collection) in categories.values() {
                     let (path_csv, path_xlsx) =
                         self.get_csv_xlsx_path(category_sub_collection.to_string());
-                    self.write_csv(path_csv, &records, &mut csv_wl)?;
-                    self.write_xlsx(path_xlsx, &records, &mut excel_wl)?;
+                    self.write_csv(path_csv, records, &mut csv_wl)?;
+                    self.write_xlsx(path_xlsx, records, &mut excel_wl)?;
                 }
 
                 Ok((cat_total as i32, csv_rl as i32, csv_wl, excel_wl))
@@ -92,14 +96,14 @@ impl Transformer {
     fn write_xlsx(
         &mut self,
         path_xlsx: PathBuf,
-        records: &Vec<StringRecord>,
+        records: &[StringRecord],
         excel_wl: &mut i32,
     ) -> Result<(), Box<dyn Error>> {
         let workbook = Workbook::new(path_xlsx.to_str().unwrap());
         let date_format = Some(workbook.add_format().set_num_format("dd.mm.yyyy hh:mm:ss"));
         match workbook.add_worksheet(None) {
             Ok(mut worksheet) => {
-                for (row, record) in records.into_iter().enumerate() {
+                for (row, record) in records.iter().enumerate() {
                     *excel_wl += 1;
                     self.write_to_running_view(format!("Excel lines added: {}", excel_wl));
 
@@ -121,14 +125,14 @@ impl Transformer {
                 workbook.close()?;
                 Ok(())
             }
-            Err(error) => return Err(Box::new(error)),
+            Err(error) => Err(Box::new(error)),
         }
     }
 
     fn write_csv(
         &mut self,
         path_csv: PathBuf,
-        records: &Vec<StringRecord>,
+        records: &[StringRecord],
         csv_wl: &mut i32,
     ) -> Result<(), Box<dyn Error>> {
         let mut wtr = WriterBuilder::new().delimiter(b';').from_path(path_csv)?;
@@ -141,10 +145,7 @@ impl Transformer {
         Ok(())
     }
 
-    fn read_csv(
-        &mut self,
-        mut rdr: csv::Reader<std::fs::File>,
-    ) -> Result<(i32, i32, HashMap<String, (Vec<StringRecord>, String)>), Box<dyn Error>> {
+    fn read_csv(&mut self, mut rdr: csv::Reader<std::fs::File>) -> CsvReadResult {
         let mut categories: HashMap<String, (Vec<StringRecord>, String)> = HashMap::new();
         let (mut csv_rl, mut cat_total) = (0, 0);
         let category_idx = rdr.get_field(&self.options.selected_category)?;
@@ -171,7 +172,7 @@ impl Transformer {
                     cat_total += 1;
                     categories
                         .entry(cat_field_key.clone())
-                        .or_insert((vec![self.headers.clone()], format!("{}", cat_field)));
+                        .or_insert((vec![self.headers.clone()], cat_field.to_string()));
                 }
                 categories.get_mut(&cat_field_key).unwrap().0.push(record);
             }

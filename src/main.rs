@@ -113,7 +113,6 @@ fn select_category_display(s: &mut Cursive, input_path: String, output_path: Str
     };
 
     headers
-        .clone()
         .iter()
         .for_each(|s| select.add_item(s.to_string(), s.to_string()));
 
@@ -160,9 +159,8 @@ fn select_filter_display(s: &mut Cursive, options: Options, headers: StringRecor
         .autojump();
 
     headers
-        .clone()
         .into_iter()
-        .for_each(|s| select.add_item(s.clone(), s.to_string()));
+        .for_each(|s| select.add_item(s, s.to_string()));
 
     let mut select_dialog = Dialog::around(
         LinearLayout::vertical()
